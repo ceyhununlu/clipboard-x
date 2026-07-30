@@ -23,8 +23,12 @@ app: ## Assemble build/ClipboardX.app (universal, ad-hoc signed by default)
 	@Scripts/build-app.sh
 
 .PHONY: dist
-dist: app ## Build and zip an ad-hoc release archive under build/
+dist: app ## Build ad-hoc zip + DMG under build/
 	@Scripts/package-release.sh
+
+.PHONY: dmg
+dmg: app ## Build an ad-hoc drag-to-Applications DMG under build/
+	@Scripts/package-dmg.sh
 
 .PHONY: verify
 verify: test app ## Run the tests, then build the bundle

@@ -1,0 +1,4 @@
+# Only the repository owner can approve changes that land on main.
+# Combined with "Require review from Code Owners" on branch protection,
+# contributors can open PRs but cannot merge them.
+* @ceyhununlu

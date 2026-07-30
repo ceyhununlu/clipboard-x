@@ -62,16 +62,18 @@ jobs:
           CONFIGURATION: release
         run: Scripts/build-app.sh
 
-      - name: Package zip
+      - name: Package zip + DMG
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: Scripts/package-release.sh
 
-      - name: Upload artifact
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ClipboardX-${{ steps.version.outputs.version }}-macos-universal
-          path: build/ClipboardX-${{ steps.version.outputs.version }}-macos-universal.zip
+          path: |
+            build/ClipboardX-${{ steps.version.outputs.version }}-macos-universal.zip
+            build/ClipboardX-${{ steps.version.outputs.version }}-macos-universal.dmg
           if-no-files-found: error
 
   release:
@@ -98,7 +100,9 @@ jobs:
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
           version="${tag#v}"
+          dmg="$(find dist -name 'ClipboardX-*-macos-universal.dmg' | head -1)"
           zip="$(find dist -name 'ClipboardX-*-macos-universal.zip' | head -1)"
+          test -n "$dmg"
           test -n "$zip"
           {
             echo "## ClipboardX ${version}"
@@ -106,10 +110,12 @@ jobs:
             echo "Universal macOS app (Apple Silicon + Intel), **ad-hoc signed**."
             echo
             echo "### Install"
-            echo "1. Download \`ClipboardX-${version}-macos-universal.zip\`"
-            echo "2. Unzip and move \`ClipboardX.app\` to \`/Applications\`"
+            echo "1. Download \`ClipboardX-${version}-macos-universal.dmg\`"
+            echo "2. Open the DMG and drag \`ClipboardX\` into **Applications**"
             echo "3. First open: right-click the app → **Open** (Gatekeeper blocks unsigned downloads once; this is expected)"
             echo "4. Grant **Accessibility** when asked (needed for auto-paste and caret placement)"
+            echo
+            echo "A \`.zip\` of the same app is also attached if you prefer not to use a disk image."
             echo
             echo "### Notes"
             echo "- No Apple Developer ID / notarization — you do not need a paid Apple account to install."
@@ -118,6 +124,6 @@ jobs:
             echo
             echo "Source: \`${GITHUB_SHA}\`"
           } > /tmp/release-notes.md
-          gh release create "$tag" "$zip" \
+          gh release create "$tag" "$dmg" "$zip" \
             --title "ClipboardX ${version}" \
             --notes-file /tmp/release-notes.md

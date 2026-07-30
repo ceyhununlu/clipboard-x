@@ -1,0 +1,25 @@
+name: Release Please
+
+# After merges to main, opens or updates a Release PR from conventional commits.
+# Merging that PR creates the v* tag; CI then builds and publishes DMG + zip.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run release-please
+        uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
