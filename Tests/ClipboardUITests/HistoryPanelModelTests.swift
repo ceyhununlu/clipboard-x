@@ -232,23 +232,19 @@ struct HistoryPanelActionTests {
 
 @Suite("Panel sizing")
 struct PanelSizingTests {
-    @Test("an empty list still gets a readable panel")
-    func emptyHeight() {
-        let height = HistoryListView.height(forRowCount: 0)
-        #expect(height == HistoryListView.headerHeight + 92 + HistoryListView.footerHeight)
-    }
-
-    @Test("height grows with the row count")
-    func growth() {
-        let one = HistoryListView.height(forRowCount: 1)
-        let three = HistoryListView.height(forRowCount: 3)
-        #expect(three - one == HistoryListView.rowHeight * 2)
-    }
-
-    @Test("height stops growing past the scroll limit")
-    func cap() {
-        let atLimit = HistoryListView.height(forRowCount: HistoryPanelModel.maxVisibleRows)
-        #expect(HistoryListView.height(forRowCount: 200) == atLimit)
+    @Test("panel height is fixed so search filtering does not jump the window")
+    func fixedHeight() {
+        let empty = HistoryListView.height(forRowCount: 0)
+        let few = HistoryListView.height(forRowCount: 3)
+        let many = HistoryListView.height(forRowCount: 200)
+        #expect(empty == HistoryListView.panelHeight)
+        #expect(few == empty)
+        #expect(many == empty)
+        #expect(empty == HistoryListView.headerHeight
+            + HistoryListView.separatorHeight
+            + HistoryListView.bodyHeight
+            + HistoryListView.separatorHeight
+            + HistoryListView.footerHeight)
     }
 }
 

@@ -4,40 +4,52 @@ import SwiftUI
 
 /// The contents of the history popup.
 ///
-/// Keyboard handling lives in `HistoryPanelController`: the panel owns a key
-/// monitor rather than a focused text field, so every keystroke has one
-/// unambiguous destination.
+/// List navigation (↑↓, Return, ⌘ shortcuts) is handled by
+/// `HistoryPanelController`'s key monitor. Typing, caret movement, and editing
+/// go to the focused search field so the header behaves like a normal text box.
 struct HistoryListView: View {
     @ObservedObject var model: HistoryPanelModel
     let onChoose: (ClipboardItem, Bool) -> Void
+
+    @FocusState private var isSearchFocused: Bool
 
     static let width: CGFloat = 420
     static let rowHeight: CGFloat = 54
     static let headerHeight: CGFloat = 36
     static let footerHeight: CGFloat = 26
+    static let separatorHeight: CGFloat = 1
+    /// Always reserve room for the scroll limit so filtering does not resize the panel.
+    static let bodyHeight: CGFloat = CGFloat(HistoryPanelModel.maxVisibleRows) * rowHeight
 
-    /// Height the panel needs for the current row count, capped at the scroll limit.
-    static func height(forRowCount count: Int) -> CGFloat {
-        let rows = max(1, min(count, HistoryPanelModel.maxVisibleRows))
-        let body = count == 0 ? 92 : CGFloat(rows) * rowHeight
-        return headerHeight + body + footerHeight
+    /// Fixed panel height — independent of the current row count.
+    static var panelHeight: CGFloat {
+        headerHeight
+            + separatorHeight
+            + bodyHeight
+            + separatorHeight
+            + footerHeight
+    }
+
+    /// Kept for call sites / tests; height no longer depends on `count`.
+    static func height(forRowCount _: Int) -> CGFloat {
+        panelHeight
     }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             separator
-            if model.isEmpty {
-                emptyState
-            } else {
-                rows
-            }
+            bodyContent
             separator
             footer
         }
-        .frame(width: Self.width)
+        .frame(width: Self.width, height: Self.panelHeight)
         .background(Color.clear)
         .clipShape(panelShape)
+        .onAppear { isSearchFocused = true }
+        .onChange(of: model.searchFocusNonce) { _, _ in
+            isSearchFocused = true
+        }
     }
 
     private var panelShape: RoundedRectangle {
@@ -47,30 +59,44 @@ struct HistoryListView: View {
     private var separator: some View {
         Rectangle()
             .fill(Color.primary.opacity(0.10))
-            .frame(height: 1)
+            .frame(height: Self.separatorHeight)
             .padding(.horizontal, RoundedPanelChromeView.cornerRadius)
     }
 
     private var header: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-                .font(.system(size: 11, weight: .semibold))
-            if model.query.isEmpty {
-                Text("Type to search")
-                    .foregroundStyle(.tertiary)
-            } else {
-                Text(model.query)
-                    .foregroundStyle(.primary)
-                Text("|")
-                    .foregroundStyle(.tertiary)
+                .font(.system(size: 12, weight: .semibold))
+
+            TextField("Type to search", text: $model.query)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .focused($isSearchFocused)
+                .onSubmit {
+                    if let item = model.selectedItem {
+                        onChoose(item, NSEvent.modifierFlags.contains(.option))
+                    }
+                }
+
+            if !model.query.isEmpty {
+                Button {
+                    model.clearQuery()
+                    isSearchFocused = true
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Clear search")
             }
-            Spacer(minLength: 8)
+
             Text(countLabel)
                 .foregroundStyle(.tertiary)
+                .font(.system(size: 11))
                 .monospacedDigit()
         }
-        .font(.system(size: 12))
         .padding(.horizontal, 12)
         .frame(height: Self.headerHeight)
     }
@@ -82,9 +108,18 @@ struct HistoryListView: View {
         return "\(model.totalCount) item\(model.totalCount == 1 ? "" : "s")"
     }
 
+    @ViewBuilder
+    private var bodyContent: some View {
+        if model.isEmpty {
+            emptyState
+        } else {
+            rows
+        }
+    }
+
     private var rows: some View {
         ScrollViewReader { proxy in
-            ScrollView(.vertical, showsIndicators: false) {
+            ScrollView(.vertical, showsIndicators: true) {
                 LazyVStack(spacing: 0) {
                     ForEach(Array(model.visibleItems.enumerated()), id: \.element.id) { index, item in
                         HistoryRowView(
@@ -106,7 +141,7 @@ struct HistoryListView: View {
                 }
                 .padding(.vertical, 4)
             }
-            .frame(height: CGFloat(min(model.visibleItems.count, HistoryPanelModel.maxVisibleRows)) * Self.rowHeight)
+            .frame(height: Self.bodyHeight)
             .onChange(of: model.selectedIndex) { _, _ in
                 guard let id = model.selectedItem?.id else { return }
                 withAnimation(.easeOut(duration: 0.1)) { proxy.scrollTo(id, anchor: .center) }
@@ -123,7 +158,7 @@ struct HistoryListView: View {
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
         }
-        .frame(height: 92)
+        .frame(height: Self.bodyHeight)
         .frame(maxWidth: .infinity)
     }
 
@@ -184,12 +219,14 @@ struct HistoryRowView: View {
             }
         }
         .padding(.horizontal, 14)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        // Fill the fixed row height so the selection chrome can inset from the
+        // row edges (like the left/right gap) without shrinking to the text.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .background {
             if isSelected {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(Color.accentColor)
-                    .padding(.horizontal, 10)
+                    .padding(10)
             }
         }
     }

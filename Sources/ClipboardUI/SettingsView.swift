@@ -166,6 +166,7 @@ private struct ShortcutSettingsTab: View {
             Section {
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
                     shortcutRow("↑ ↓", "Move through the list")
+                    shortcutRow("← →", "Move the search caret")
                     shortcutRow("⏎", "Paste the selected item")
                     shortcutRow("⌥⏎", "Paste without formatting")
                     shortcutRow("⌘1 – ⌘9", "Paste that row directly")

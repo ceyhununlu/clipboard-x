@@ -26,8 +26,8 @@ You do **not** need an Apple Developer account or the App Store.
 ### Option A — download a release (easiest)
 
 1. Open the repository’s [Releases](../../releases) page and download
-   `ClipboardX-*-macos-universal.zip`.
-2. Unzip it and drag `ClipboardX.app` into `/Applications`.
+   `ClipboardX-*-macos-universal.dmg` (or the `.zip` if you prefer).
+2. Open the DMG and drag `ClipboardX` into **Applications**.
 3. First launch: **right-click** the app → **Open** → confirm. macOS Gatekeeper
    blocks ad-hoc / unsigned downloads once; this is normal and does **not**
    mean the file is malware.
@@ -54,7 +54,8 @@ make install    # copy to /Applications and launch
 | --- | --- |
 | `make test` | Run the whole test suite |
 | `make app` | Build `build/ClipboardX.app` (universal, **ad-hoc** signed) |
-| `make dist` | Build + zip for distribution (`build/ClipboardX-*-macos-universal.zip`) |
+| `make dist` | Build zip + DMG for distribution under `build/` |
+| `make dmg` | Build only the drag-to-Applications DMG |
 | `make run` | Build and launch from `./build` |
 | `make stop` | Quit a running instance |
 | `make logs` | Stream the app's log output |
@@ -121,7 +122,8 @@ Inside the popup:
 | Key | Action |
 | --- | --- |
 | `↑` `↓` | Move the selection |
-| `Page Up` / `Page Down` / `Home` / `End` | Move faster |
+| `Page Up` / `Page Down` | Jump by a page of rows |
+| `←` / `→` / `Home` / `End` | Move the search caret |
 | `Return` | Paste the selected item |
 | `⌥Return` | Paste it without formatting |
 | `⌘1`–`⌘9` | Paste that row directly |
@@ -175,14 +177,21 @@ Behaviour worth knowing about:
 
 ## Continuous integration
 
-Trunk-based: all work merges to `main`. GitHub Actions (`.github/workflows/ci.yml`):
+Trunk-based: feature branches merge to `main` via pull request. GitHub Actions:
 
-1. **Test** — `swift test` on every push and pull request to `main`.
-2. **Build** — universal `ClipboardX.app`, ad-hoc signed (`IDENTITY=-`), zipped
-   as a workflow artifact.
-3. **Release** — pushing a tag `v1.2.3` publishes that zip to GitHub Releases.
+| Workflow | Trigger | What it does |
+| --- | --- | --- |
+| **CI** | PR or push to `main`; `v*` tags | `swift test`, build ad-hoc universal app, zip + DMG artifacts |
+| **Release Please** | Push to `main` | Opens/updates a Release PR from conventional commits |
+| **Release publish** | `v*` tag (after Release PR merge) | Attaches DMG + zip to the GitHub Release |
 
-No signing secrets are configured. See [CONTRIBUTING.md](CONTRIBUTING.md) and
+### How releases work
+
+1. Merge feature PRs to `main` using conventional commits (`feat:`, `fix:`, …).
+2. **Release Please** opens a Release PR with the next version and `CHANGELOG.md` update.
+3. Merge the Release PR → CI tags `v1.2.3` and publishes binaries.
+
+No manual tagging. No signing secrets in CI — see [CONTRIBUTING.md](CONTRIBUTING.md) and
 [SECURITY.md](SECURITY.md).
 
 ## Tests

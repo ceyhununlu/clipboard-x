@@ -76,10 +76,9 @@ final class HistoryPanelController {
         if reactivate { onDismiss?() }
     }
 
-    /// Re-measures the panel after the visible row count changes.
+    /// Positions the fixed-size panel near the caret / pointer.
     private func layout(_ panel: HistoryPanel) {
-        let height = HistoryListView.height(forRowCount: model.visibleItems.count)
-        let size = CGSize(width: HistoryListView.width, height: height)
+        let size = CGSize(width: HistoryListView.width, height: HistoryListView.panelHeight)
         let screen = screenForAnchor() ?? NSScreen.main
         let visibleFrame = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1_440, height: 900)
         let origin = PanelPlacer.origin(panelSize: size, anchor: anchor, visibleFrame: visibleFrame)
@@ -163,14 +162,12 @@ final class HistoryPanelController {
     }
 
     /// Returns whether the event was consumed.
+    ///
+    /// Navigation and app shortcuts are handled here. Typing, ←/→ caret moves,
+    /// Backspace, and standard text editing are left for the focused search field.
     private func handle(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let command = flags.contains(.command)
-        let rowsBefore = model.visibleItems.count
-
-        defer {
-            if model.visibleItems.count != rowsBefore, let panel { layout(panel) }
-        }
 
         switch event.keyCode {
         case VirtualKey.escape:
@@ -195,20 +192,8 @@ final class HistoryPanelController {
             }
             return true
 
-        case VirtualKey.delete:
-            if command {
-                model.deleteSelection()
-            } else {
-                model.deleteBackwardInQuery()
-            }
-            return true
-
-        case KeyCodes.home:
-            model.selectFirst()
-            return true
-
-        case KeyCodes.end:
-            model.selectLast()
+        case VirtualKey.delete where command:
+            model.deleteSelection()
             return true
 
         case KeyCodes.pageUp:
@@ -234,15 +219,32 @@ final class HistoryPanelController {
             return true
         }
 
-        // Modifier chords we do not own are left to the system; bare typing is
-        // search input.
-        guard !command, !flags.contains(.control), !flags.contains(.option) else { return false }
-        guard let characters = event.characters, !characters.isEmpty else { return false }
-        guard characters.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) }) else {
-            return false
+        // Prefer the focused search field. If focus has not landed yet (common
+        // on the first keystrokes after open), fall back to the model so those
+        // characters are not dropped.
+        if HistoryPanelTypingFallback.apply(
+            keyCode: event.keyCode,
+            characters: event.characters,
+            command: command,
+            control: flags.contains(.control),
+            option: flags.contains(.option),
+            searchFieldFocused: isSearchFieldFirstResponder,
+            append: { model.appendToQuery($0) },
+            deleteBackward: { model.deleteBackwardInQuery() }
+        ) {
+            return true
         }
-        model.appendToQuery(characters)
-        return true
+
+        // ←/→, Home/End, ⌘A/⌘V, and focused typing reach the TextField.
+        return false
+    }
+
+    /// SwiftUI's `TextField` uses an `NSTextField` / field-editor `NSTextView`.
+    private var isSearchFieldFirstResponder: Bool {
+        guard let responder = panel?.firstResponder else { return false }
+        if responder is NSTextField { return true }
+        if let textView = responder as? NSTextView, textView.isFieldEditor { return true }
+        return false
     }
 
     private enum KeyCodes {

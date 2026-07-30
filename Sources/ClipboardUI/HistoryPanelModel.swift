@@ -19,6 +19,9 @@ final class HistoryPanelModel: ObservableObject {
         }
     }
 
+    /// Bumped when the popup opens so the search field can reclaim focus.
+    @Published private(set) var searchFocusNonce = 0
+
     @Published private(set) var visibleItems: [ClipboardItem] = []
     @Published private(set) var selectedIndex = 0
 
@@ -67,6 +70,7 @@ final class HistoryPanelModel: ObservableObject {
     /// most recent item.
     func reset() {
         query = ""
+        searchFocusNonce &+= 1
         refresh(resettingSelection: true)
     }
 
