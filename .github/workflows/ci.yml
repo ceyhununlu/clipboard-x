@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+
+# Least privilege: build/test only. Releases use the default GITHUB_TOKEN with
+# contents: write on tagged pushes. No signing certificates or private keys
+# are stored in this repository or in Actions secrets.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: macos-15
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Run tests
+        run: swift test
+
+  build:
+    name: Build universal app
+    needs: test
+    runs-on: macos-15
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" == v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="0.0.0-${GITHUB_SHA::7}"
+          fi
+          echo "version=${version}" >>"$GITHUB_OUTPUT"
+          echo "build_number=${GITHUB_RUN_NUMBER}" >>"$GITHUB_OUTPUT"
+
+      - name: Build ad-hoc universal app
+        env:
+          # Explicit ad-hoc only — never auto-pick a keychain identity on CI.
+          IDENTITY: "-"
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+          UNIVERSAL: "1"
+          CONFIGURATION: release
+        run: Scripts/build-app.sh
+
+      - name: Package zip
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: Scripts/package-release.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClipboardX-${{ steps.version.outputs.version }}-macos-universal
+          path: build/ClipboardX-${{ steps.version.outputs.version }}-macos-universal.zip
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          zip="$(find dist -name 'ClipboardX-*-macos-universal.zip' | head -1)"
+          test -n "$zip"
+          {
+            echo "## ClipboardX ${version}"
+            echo
+            echo "Universal macOS app (Apple Silicon + Intel), **ad-hoc signed**."
+            echo
+            echo "### Install"
+            echo "1. Download \`ClipboardX-${version}-macos-universal.zip\`"
+            echo "2. Unzip and move \`ClipboardX.app\` to \`/Applications\`"
+            echo "3. First open: right-click the app → **Open** (Gatekeeper blocks unsigned downloads once; this is expected)"
+            echo "4. Grant **Accessibility** when asked (needed for auto-paste and caret placement)"
+            echo
+            echo "### Notes"
+            echo "- No Apple Developer ID / notarization — you do not need a paid Apple account to install."
+            echo "- Rebuilds from Releases may require toggling Accessibility off/on once after updating."
+            echo "- Prefer building from source with \`IDENTITY=auto make app\` if you have Xcode signing set up locally."
+            echo
+            echo "Source: \`${GITHUB_SHA}\`"
+          } > /tmp/release-notes.md
+          gh release create "$tag" "$zip" \
+            --title "ClipboardX ${version}" \
+            --notes-file /tmp/release-notes.md

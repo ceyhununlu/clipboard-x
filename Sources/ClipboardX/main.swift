@@ -1,0 +1,3 @@
+import ClipboardUI
+
+ClipboardXApp.launch()
