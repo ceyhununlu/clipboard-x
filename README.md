@@ -7,6 +7,8 @@ you were using.
 ClipboardX remembers recent text, rich text, and images; lets you search, pin,
 and delete items; and lives in the menu bar. Nothing leaves your Mac.
 
+![ClipboardX demo — open history, search, select, paste](docs/demo.gif)
+
 ## Install
 
 1. Download the latest **`.dmg`** from
