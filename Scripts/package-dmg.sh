@@ -1,10 +1,12 @@
 #!/bin/bash
 #
 # Builds a drag-to-Applications DMG from build/ClipboardX.app.
-# Expects an already-built ad-hoc signed app (IDENTITY=-).
 #
 # Environment:
 #   VERSION   marketing version used in the volume / file name (default: 1.0.0)
+#
+# Accepts ad-hoc or Developer ID Application signatures. Refuses Apple
+# Development identities so personal/dev certs never ship in Releases.
 
 set -euo pipefail
 
@@ -15,7 +17,6 @@ APP="$OUT/$APP_NAME.app"
 VERSION="${VERSION:-1.0.0}"
 DMG="$OUT/${APP_NAME}-${VERSION}-macos-universal.dmg"
 STAGE="$OUT/dmg-stage"
-RW_DMG="$OUT/.${APP_NAME}-rw.dmg"
 
 if [[ ! -d "$APP" ]]; then
   echo "error: missing $APP — run Scripts/build-app.sh first" >&2
@@ -23,21 +24,17 @@ if [[ ! -d "$APP" ]]; then
 fi
 
 codesign_info="$(codesign -dv --verbose=4 "$APP" 2>&1 || true)"
-if ! grep -Eq 'Signature=adhoc|flags=0x2\(adhoc\)' <<<"$codesign_info"; then
-  echo "error: refusing to package a non-ad-hoc signed app." >&2
-  echo "       Release bundles must be built with IDENTITY=- so no developer" >&2
-  echo "       certificate is required or exposed." >&2
-  echo "$codesign_info" | grep -E '^(Authority|Signature|TeamIdentifier)=' >&2 || true
+if grep -q 'Authority=Apple Development' <<<"$codesign_info"; then
+  echo "error: refusing to package an Apple Development–signed app." >&2
+  echo "       Releases must be ad-hoc (PRs) or Developer ID Application (tags)." >&2
   exit 1
 fi
 
-rm -rf "$STAGE" "$RW_DMG" "$DMG"
+rm -rf "$STAGE" "$DMG"
 mkdir -p "$STAGE"
 ditto "$APP" "$STAGE/$APP_NAME.app"
 ln -s /Applications "$STAGE/Applications"
 
-# Write a compressed UDZO image. No custom background/Finder window scripting —
-# the Applications symlink is enough for a clear drag-install UX.
 hdiutil create \
   -volname "$APP_NAME" \
   -srcfolder "$STAGE" \

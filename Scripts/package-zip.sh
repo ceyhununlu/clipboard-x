@@ -1,10 +1,12 @@
 #!/bin/bash
 #
-# Packages build/ClipboardX.app into a distributable zip for GitHub Releases.
-# Expects an already-built ad-hoc signed app (IDENTITY=-).
+# Packages build/ClipboardX.app into a distributable zip.
 #
 # Environment:
 #   VERSION   marketing version used in the archive name (default: 1.0.0)
+#
+# Accepts ad-hoc or Developer ID Application signatures. Refuses Apple
+# Development identities so personal/dev certs never ship in Releases.
 
 set -euo pipefail
 
@@ -20,21 +22,16 @@ if [[ ! -d "$APP" ]]; then
   exit 1
 fi
 
-# Refuse to package a build that was signed with a personal/team identity so
-# Release artifacts never accidentally ship someone's Developer certificate.
 codesign_info="$(codesign -dv --verbose=4 "$APP" 2>&1 || true)"
-if ! grep -Eq 'Signature=adhoc|flags=0x2\(adhoc\)' <<<"$codesign_info"; then
-  echo "error: refusing to package a non-ad-hoc signed app." >&2
-  echo "       Release bundles must be built with IDENTITY=- so no developer" >&2
-  echo "       certificate is required or exposed." >&2
-  echo "$codesign_info" | grep -E '^(Authority|Signature|TeamIdentifier)=' >&2 || true
+if grep -q 'Authority=Apple Development' <<<"$codesign_info"; then
+  echo "error: refusing to package an Apple Development–signed app." >&2
+  echo "       Releases must be ad-hoc (PRs) or Developer ID Application (tags)." >&2
   exit 1
 fi
 
 rm -f "$ARCHIVE"
 (
   cd "$OUT"
-  # ditto preserves extended attributes and the app bundle layout.
   ditto -c -k --keepParent "$APP_NAME.app" "$(basename "$ARCHIVE")"
 )
 

@@ -10,6 +10,9 @@ let package = Package(
         .executable(name: "ClipboardX", targets: ["ClipboardX"]),
         .library(name: "ClipboardCore", targets: ["ClipboardCore"]),
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.7.0"),
+    ],
     targets: [
         .target(
             name: "ClipboardCore",
@@ -22,7 +25,11 @@ let package = Package(
         ),
         .target(
             name: "ClipboardUI",
-            dependencies: ["ClipboardCore", "ClipboardPlatform"],
+            dependencies: [
+                "ClipboardCore",
+                "ClipboardPlatform",
+                .product(name: "Sparkle", package: "Sparkle"),
+            ],
             swiftSettings: swiftSettings
         ),
         .executableTarget(

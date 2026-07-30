@@ -1,23 +1,20 @@
 #!/bin/bash
 #
-# Assembles build/ClipboardX.app from the SwiftPM executable.
+# Assembles build/ClipboardX.app from the SwiftPM executable + Sparkle.framework.
 #
 # Environment:
 #   CONFIGURATION  debug | release            (default: release)
 #   UNIVERSAL      1 to build arm64 + x86_64  (default: 1, falls back to native)
 #   IDENTITY       codesign identity:
-#                    unset or "-"  → ad-hoc (default; safe for CI / Releases)
+#                    unset or "-"  → ad-hoc (default for local / unsigned CI)
 #                    auto          → first valid Apple Development identity
-#                    <name>        → exact identity string
-#                  Ad-hoc rebuilds change the code hash, so Accessibility grants
-#                  need toggling after each reinstall. Local developers with an
-#                  Xcode signing identity should use IDENTITY=auto.
+#                    <name>        → exact identity (CI uses Developer ID Application)
 #   VERSION        marketing version          (default: 1.0.0)
 #   BUILD_NUMBER   bundle version             (default: 1)
+#   ENTITLEMENTS   path to entitlements plist (optional; used with real identities)
 #
-# This script NEVER reads certificates, private keys, or provisioning profiles
-# from the repo. Signing identities come only from the local keychain when you
-# explicitly pass IDENTITY=auto or IDENTITY="<name>".
+# Certificates are NEVER read from the repo. CI imports them from GitHub secrets
+# into a temporary keychain before invoking this script with IDENTITY set.
 
 set -euo pipefail
 
@@ -28,6 +25,8 @@ UNIVERSAL="${UNIVERSAL:-1}"
 VERSION="${VERSION:-1.0.0}"
 BUILD_NUMBER="${BUILD_NUMBER:-1}"
 DEPLOYMENT_TARGET="15.0"
+SU_FEED_URL="https://github.com/ceyhununlu/clipboard-x/releases/latest/download/appcast.xml"
+SU_PUBLIC_ED_KEY="856Nep5BQKkM2FvuT8qc2qPrX1ZL5Jj12dZPUg7C2eA="
 
 pick_identity() {
   local requested="${IDENTITY:--}"
@@ -37,8 +36,6 @@ pick_identity() {
       return
       ;;
     auto)
-      # Prefer a valid (non-revoked) Apple Development cert so TCC grants survive
-      # rebuilds. `find-identity -v` still lists revoked certs; skip those.
       local line name
       while IFS= read -r line; do
         [[ "$line" == *CSSMERR_* || "$line" == *REVOKED* ]] && continue
@@ -64,6 +61,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/build"
 APP="$OUT/$APP_NAME.app"
 CONTENTS="$APP/Contents"
+ENTITLEMENTS="${ENTITLEMENTS:-$ROOT/Resources/ClipboardX.entitlements}"
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$1"; }
 warn() { printf '\033[1;33m==>\033[0m %s\n' "$1" >&2; }
@@ -104,7 +102,7 @@ fi
 
 log "Assembling bundle"
 rm -rf "$APP"
-mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources"
+mkdir -p "$CONTENTS/MacOS" "$CONTENTS/Resources" "$CONTENTS/Frameworks"
 
 if [[ ${#SLICES[@]} -gt 1 ]]; then
   lipo -create "${SLICES[@]}" -output "$CONTENTS/MacOS/$APP_NAME"
@@ -112,6 +110,21 @@ else
   cp "${SLICES[0]}" "$CONTENTS/MacOS/$APP_NAME"
 fi
 chmod +x "$CONTENTS/MacOS/$APP_NAME"
+
+# Embed Sparkle (SPM binary XCFramework → universal macOS slice).
+SPARKLE_SRC="$(
+  find "$ROOT/.build" -path '*/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework' -type d 2>/dev/null | head -1
+)"
+if [[ -z "$SPARKLE_SRC" ]]; then
+  SPARKLE_SRC="$(find "$ROOT/.build" -path '*/release/Sparkle.framework' -type d 2>/dev/null | head -1)"
+fi
+if [[ -z "$SPARKLE_SRC" ]]; then
+  echo "error: Sparkle.framework not found under .build — did swift build run?" >&2
+  exit 1
+fi
+log "Embedding Sparkle from $SPARKLE_SRC"
+ditto "$SPARKLE_SRC" "$CONTENTS/Frameworks/Sparkle.framework"
+install_name_tool -add_rpath @executable_path/../Frameworks "$CONTENTS/MacOS/$APP_NAME" 2>/dev/null || true
 
 log "Rendering icon"
 swift "$ROOT/Scripts/make-icon.swift" "$OUT/AppIcon.iconset" >/dev/null
@@ -159,6 +172,16 @@ cat >"$CONTENTS/Info.plist" <<PLIST
 	<false/>
 	<key>NSSupportsSuddenTermination</key>
 	<false/>
+	<key>SUFeedURL</key>
+	<string>$SU_FEED_URL</string>
+	<key>SUPublicEDKey</key>
+	<string>$SU_PUBLIC_ED_KEY</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUAutomaticallyUpdate</key>
+	<true/>
+	<key>SUScheduledCheckInterval</key>
+	<integer>3600</integer>
 </dict>
 </plist>
 PLIST
@@ -166,13 +189,30 @@ PLIST
 printf 'APPL????' >"$CONTENTS/PkgInfo"
 
 log "Signing with identity: $IDENTITY"
-CODESIGN_ARGS=(--force --sign "$IDENTITY" --identifier "$BUNDLE_ID" --timestamp=none)
-if [[ "$IDENTITY" != "-" ]]; then
-  # A real identity gets the hardened runtime; ad-hoc builds skip it because an
-  # unnotarised hardened binary is harder to run locally.
-  CODESIGN_ARGS+=(--options runtime)
-fi
-codesign "${CODESIGN_ARGS[@]}" "$APP"
+sign_one() {
+  local target="$1"
+  local args=(--force --sign "$IDENTITY" --identifier "$BUNDLE_ID")
+  if [[ "$IDENTITY" != "-" ]]; then
+    args+=(--options runtime --timestamp)
+    if [[ -f "$ENTITLEMENTS" ]]; then
+      args+=(--entitlements "$ENTITLEMENTS")
+    fi
+  else
+    args+=(--timestamp=none)
+  fi
+  codesign "${args[@]}" "$target"
+}
+
+# Sign nested Sparkle helpers inside-out, then the framework, then the app.
+while IFS= read -r nested; do
+  sign_one "$nested"
+done < <(find "$CONTENTS/Frameworks/Sparkle.framework" \( -name '*.dylib' -o -name 'Autoupdate' -o -name 'Updater' -o -name 'Downloader' -o -name 'Installer.xpc' -o -name 'Downloader.xpc' \) 2>/dev/null | sort -r)
+# Sign XPC services and Updater.app bundles
+while IFS= read -r bundle; do
+  sign_one "$bundle"
+done < <(find "$CONTENTS/Frameworks/Sparkle.framework" \( -name '*.app' -o -name '*.xpc' \) 2>/dev/null | sort -r)
+sign_one "$CONTENTS/Frameworks/Sparkle.framework"
+sign_one "$APP"
 codesign --verify --deep --strict "$APP"
 
 log "Built $APP"

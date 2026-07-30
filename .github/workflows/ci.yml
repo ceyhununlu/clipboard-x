@@ -7,9 +7,8 @@ on:
   pull_request:
     branches: [main]
 
-# Least privilege: build/test only. Releases use the default GITHUB_TOKEN with
-# contents: write on tagged pushes. No signing certificates or private keys
-# are stored in this repository or in Actions secrets.
+# Signing certificates and notarization credentials live only in GitHub Actions
+# secrets — never in the repository. Sparkle EdDSA private key is also a secret.
 permissions:
   contents: read
 
@@ -51,21 +50,58 @@ jobs:
           fi
           echo "version=${version}" >>"$GITHUB_OUTPUT"
           echo "build_number=${GITHUB_RUN_NUMBER}" >>"$GITHUB_OUTPUT"
+          echo "is_release=${{ startsWith(github.ref, 'refs/tags/v') }}" >>"$GITHUB_OUTPUT"
 
-      - name: Build ad-hoc universal app
+      - name: Import Developer ID certificate
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
-          # Explicit ad-hoc only — never auto-pick a keychain identity on CI.
-          IDENTITY: "-"
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          IDENTITY="$(Scripts/ci-import-certificate.sh)"
+          echo "IDENTITY=$IDENTITY" >>"$GITHUB_ENV"
+
+      - name: Build universal app
+        env:
           VERSION: ${{ steps.version.outputs.version }}
           BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
           UNIVERSAL: "1"
           CONFIGURATION: release
-        run: Scripts/build-app.sh
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" == v* ]]; then
+            test -n "${IDENTITY:-}" || { echo "missing Developer ID identity from import step" >&2; exit 1; }
+          else
+            export IDENTITY="-"
+          fi
+          echo "Building with IDENTITY=${IDENTITY}"
+          Scripts/build-app.sh
 
       - name: Package zip + DMG
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: Scripts/package-release.sh
+
+      - name: Notarize DMG
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: Scripts/ci-notarize.sh "build/ClipboardX-${{ steps.version.outputs.version }}-macos-universal.dmg"
+
+      - name: Generate Sparkle appcast
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NUMBER: ${{ steps.version.outputs.build_number }}
+          DMG_PATH: build/ClipboardX-${{ steps.version.outputs.version }}-macos-universal.dmg
+          OUT_APPCAST: build/appcast.xml
+          REPO: ${{ github.repository }}
+        run: Scripts/ci-generate-appcast.sh
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
@@ -74,7 +110,8 @@ jobs:
           path: |
             build/ClipboardX-${{ steps.version.outputs.version }}-macos-universal.zip
             build/ClipboardX-${{ steps.version.outputs.version }}-macos-universal.dmg
-          if-no-files-found: error
+            build/appcast.xml
+          if-no-files-found: warn
 
   release:
     name: GitHub Release
@@ -102,29 +139,24 @@ jobs:
           version="${tag#v}"
           dmg="$(find dist -name 'ClipboardX-*-macos-universal.dmg' | head -1)"
           zip="$(find dist -name 'ClipboardX-*-macos-universal.zip' | head -1)"
+          appcast="$(find dist -name 'appcast.xml' | head -1)"
           test -n "$dmg"
           test -n "$zip"
+          test -n "$appcast"
 
-          # Release Please creates the GitHub Release + tag; CI attaches binaries.
-          # If the release object is not ready yet, create a minimal one.
           if ! gh release view "$tag" >/dev/null 2>&1; then
             {
               echo "## ClipboardX ${version}"
               echo
-              echo "Universal macOS app (Apple Silicon + Intel), **ad-hoc signed**."
+              echo "Universal macOS app (Apple Silicon + Intel)."
+              echo "Developer ID signed, notarized, and Sparkle-enabled for auto-updates."
               echo
               echo "### Install"
               echo "1. Download \`ClipboardX-${version}-macos-universal.dmg\`"
               echo "2. Open the DMG and drag \`ClipboardX\` into **Applications**"
-              echo "3. First open: right-click the app → **Open** (Gatekeeper blocks unsigned downloads once; this is expected)"
-              echo "4. Grant **Accessibility** when asked (needed for auto-paste and caret placement)"
+              echo "3. Open the app and grant **Accessibility** when asked"
               echo
-              echo "A \`.zip\` of the same app is also attached if you prefer not to use a disk image."
-              echo
-              echo "### Notes"
-              echo "- No Apple Developer ID / notarization — you do not need a paid Apple account to install."
-              echo "- Rebuilds from Releases may require toggling Accessibility off/on once after updating."
-              echo "- Prefer building from source with \`IDENTITY=auto make app\` if you have Xcode signing set up locally."
+              echo "Later versions download automatically (menu bar → Check for Updates…)."
               echo
               echo "Source: \`${GITHUB_SHA}\`"
             } > /tmp/release-notes.md
@@ -134,4 +166,4 @@ jobs:
               --verify-tag
           fi
 
-          gh release upload "$tag" "$dmg" "$zip" --clobber
+          gh release upload "$tag" "$dmg" "$zip" "$appcast" --clobber
