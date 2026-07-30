@@ -93,7 +93,7 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Create release
+      - name: Publish release assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -104,26 +104,34 @@ jobs:
           zip="$(find dist -name 'ClipboardX-*-macos-universal.zip' | head -1)"
           test -n "$dmg"
           test -n "$zip"
-          {
-            echo "## ClipboardX ${version}"
-            echo
-            echo "Universal macOS app (Apple Silicon + Intel), **ad-hoc signed**."
-            echo
-            echo "### Install"
-            echo "1. Download \`ClipboardX-${version}-macos-universal.dmg\`"
-            echo "2. Open the DMG and drag \`ClipboardX\` into **Applications**"
-            echo "3. First open: right-click the app → **Open** (Gatekeeper blocks unsigned downloads once; this is expected)"
-            echo "4. Grant **Accessibility** when asked (needed for auto-paste and caret placement)"
-            echo
-            echo "A \`.zip\` of the same app is also attached if you prefer not to use a disk image."
-            echo
-            echo "### Notes"
-            echo "- No Apple Developer ID / notarization — you do not need a paid Apple account to install."
-            echo "- Rebuilds from Releases may require toggling Accessibility off/on once after updating."
-            echo "- Prefer building from source with \`IDENTITY=auto make app\` if you have Xcode signing set up locally."
-            echo
-            echo "Source: \`${GITHUB_SHA}\`"
-          } > /tmp/release-notes.md
-          gh release create "$tag" "$dmg" "$zip" \
-            --title "ClipboardX ${version}" \
-            --notes-file /tmp/release-notes.md
+
+          # Release Please creates the GitHub Release + tag; CI attaches binaries.
+          # If the release object is not ready yet, create a minimal one.
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            {
+              echo "## ClipboardX ${version}"
+              echo
+              echo "Universal macOS app (Apple Silicon + Intel), **ad-hoc signed**."
+              echo
+              echo "### Install"
+              echo "1. Download \`ClipboardX-${version}-macos-universal.dmg\`"
+              echo "2. Open the DMG and drag \`ClipboardX\` into **Applications**"
+              echo "3. First open: right-click the app → **Open** (Gatekeeper blocks unsigned downloads once; this is expected)"
+              echo "4. Grant **Accessibility** when asked (needed for auto-paste and caret placement)"
+              echo
+              echo "A \`.zip\` of the same app is also attached if you prefer not to use a disk image."
+              echo
+              echo "### Notes"
+              echo "- No Apple Developer ID / notarization — you do not need a paid Apple account to install."
+              echo "- Rebuilds from Releases may require toggling Accessibility off/on once after updating."
+              echo "- Prefer building from source with \`IDENTITY=auto make app\` if you have Xcode signing set up locally."
+              echo
+              echo "Source: \`${GITHUB_SHA}\`"
+            } > /tmp/release-notes.md
+            gh release create "$tag" \
+              --title "ClipboardX ${version}" \
+              --notes-file /tmp/release-notes.md \
+              --verify-tag
+          fi
+
+          gh release upload "$tag" "$dmg" "$zip" --clobber
