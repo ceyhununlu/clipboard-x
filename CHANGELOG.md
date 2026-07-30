@@ -7,6 +7,14 @@ from [Conventional Commits](https://www.conventionalcommits.org/) on `main`. Whe
 due, Release Please opens a **Release PR**; merging it creates the `v*` tag and CI publishes
 the macOS DMG and zip.
 
+## [1.2.0](https://github.com/ceyhununlu/clipboard-x/compare/v1.1.0...v1.2.0) (2026-07-30)
+
+
+### Features
+
+* Sparkle auto-updates and CI Developer ID signing ([#9](https://github.com/ceyhununlu/clipboard-x/issues/9))
+* README demo GIF with fictional sample data ([#11](https://github.com/ceyhununlu/clipboard-x/issues/11))
+
 ## [1.1.0](https://github.com/ceyhununlu/clipboard-x/compare/v1.0.0...v1.1.0) (2026-07-30)
 
 
