@@ -92,3 +92,24 @@ Scripts/setup-github-repo.sh
 This creates the public repo (if needed), enables Dependabot security updates,
 and protects `main`. Run it **after** the first CI workflow has completed at
 least once so required status check names exist.
+
+## Release signing secrets (maintainers)
+
+Public Releases are **Developer ID signed + notarized** and publish a Sparkle
+`appcast.xml`. Certificates never enter git — only GitHub Actions secrets.
+
+1. Create a **Developer ID Application** certificate at
+   [developer.apple.com](https://developer.apple.com/account/resources/certificates/list)
+   (Apple Development alone is not enough).
+2. Upload secrets (interactive):
+
+   ```bash
+   Scripts/configure-signing-secrets.sh
+   ```
+
+3. Ensure `SPARKLE_PRIVATE_KEY` is set (already configured for this repo). The
+   matching public key is embedded in `Info.plist` as `SUPublicEDKey`.
+
+Required secrets: `MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PASSWORD`, plus either
+App Store Connect API (`APPLE_API_KEY_ID`, `APPLE_API_ISSUER`, `APPLE_API_KEY`)
+or Apple ID notarization (`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`).

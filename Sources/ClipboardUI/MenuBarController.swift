@@ -14,6 +14,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     var onChoose: (ClipboardItem) -> Void = { _ in }
     var onClearHistory: () -> Void = {}
     var onFixPermission: () -> Void = {}
+    var onCheckForUpdates: () -> Void = {}
     var onQuit: () -> Void = {}
 
     private let store: HistoryStore
@@ -132,6 +133,14 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
+        let updates = NSMenuItem(
+            title: "Check for Updates…",
+            action: #selector(checkForUpdates),
+            keyEquivalent: ""
+        )
+        updates.target = self
+        menu.addItem(updates)
+
         menu.addItem(.separator())
 
         let quit = NSMenuItem(title: "Quit ClipboardX", action: #selector(quit), keyEquivalent: "q")
@@ -163,6 +172,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     @objc private func openSettings() { onOpenSettings() }
     @objc private func clearHistory() { onClearHistory() }
     @objc private func fixPermission() { onFixPermission() }
+    @objc private func checkForUpdates() { onCheckForUpdates() }
     @objc private func quit() { onQuit() }
 
     @objc private func chooseRecent(_ sender: NSMenuItem) {

@@ -42,6 +42,7 @@ public final class ClipboardXApp: NSObject, NSApplicationDelegate {
     private var menuBar: MenuBarController!
     private var settingsWindow: SettingsWindowController!
     private var paths: AppPaths!
+    private var updater: UpdateController?
 
     private var cancellables: Set<AnyCancellable> = []
     private var appliedHotkeys: [HotkeySlot: KeyCombo] = [:]
@@ -68,8 +69,19 @@ public final class ClipboardXApp: NSObject, NSApplicationDelegate {
         observeSettings()
         applySettings(initial: true)
         checkPermission()
+        startUpdaterIfBundled()
 
         AppLog.app.info("ClipboardX \(AppInfo.version) started with \(self.store.items.count) items")
+    }
+
+    private func startUpdaterIfBundled() {
+        // Sparkle needs a real app bundle + feed URL from Info.plist.
+        guard AppInfo.isBundled else { return }
+        let updater = UpdateController()
+        self.updater = updater
+        menuBar.onCheckForUpdates = { [weak updater] in
+            updater?.checkForUpdates(nil)
+        }
     }
 
     public func applicationWillTerminate(_ notification: Notification) {

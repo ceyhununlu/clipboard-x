@@ -12,15 +12,16 @@
 
 ## Distribution and signing
 
-Public GitHub Release builds are **ad-hoc signed** on purpose:
+Public GitHub Release builds are **Developer ID signed, notarized, and
+Sparkle-signed** for auto-update. Credentials live only in GitHub Actions
+secrets (never in git):
 
-- Contributors and CI do **not** need (and must not upload) Apple Developer
-  certificates, private keys, or provisioning profiles.
-- This repository and its Actions workflows never store signing secrets for
-  packaging Releases.
-- Gatekeeper will warn on first open of a downloaded build; that is expected
-  for unsigned / ad-hoc apps. Prefer building from source if you want a
-  locally trusted signature (`IDENTITY=auto make app`).
+- `MACOS_CERTIFICATE` / `MACOS_CERTIFICATE_PASSWORD` — Developer ID Application `.p12`
+- Notarization via App Store Connect API key or Apple ID app-specific password
+- `SPARKLE_PRIVATE_KEY` — EdDSA key for update authenticity (public half is in
+  the app’s `SUPublicEDKey`)
+
+Contributors never need these secrets. Pull-request CI builds stay **ad-hoc**.
 
 If you find a certificate, private key, `.p12`, provisioning profile, or
 similar material in this repository or its history, please report it — that
