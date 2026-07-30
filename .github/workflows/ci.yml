@@ -57,9 +57,7 @@ jobs:
         env:
           MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-        run: |
-          IDENTITY="$(Scripts/ci-import-certificate.sh)"
-          echo "IDENTITY=$IDENTITY" >>"$GITHUB_ENV"
+        run: Scripts/ci-import-certificate.sh
 
       - name: Build universal app
         env:
