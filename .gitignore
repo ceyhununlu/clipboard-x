@@ -1,0 +1,38 @@
+# Build products
+.DS_Store
+.build/
+.swiftpm/
+build/
+DerivedData/
+*.xcodeproj
+*.xcworkspace
+
+# Local design / planning notes (not part of the public project)
+docs/superpowers/
+
+# Secrets, signing material, and local env — never commit these
+.env
+.env.*
+*.p12
+*.pfx
+*.pem
+*.key
+*.cer
+*.crt
+*.der
+*.mobileprovision
+*.provisionprofile
+*.certSigningRequest
+Secrets/
+secrets/
+certificates/
+Certificates/
+private/
+*.xcuserstate
+xcuserdata/
+
+# Editor / local tooling
+.idea/
+.vscode/
+*.swp
+*~
