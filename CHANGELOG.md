@@ -7,6 +7,13 @@ from [Conventional Commits](https://www.conventionalcommits.org/) on `main`. Whe
 due, Release Please opens a **Release PR**; merging it creates the `v*` tag and CI publishes
 the macOS DMG and zip.
 
+## [1.1.1](https://github.com/ceyhununlu/clipboard-x/compare/v1.1.0...v1.1.1) (2026-07-30)
+
+
+### Bug Fixes
+
+* let Release Please create tags; CI uploads DMG assets ([#7](https://github.com/ceyhununlu/clipboard-x/issues/7)) ([26b007a](https://github.com/ceyhununlu/clipboard-x/commit/26b007a85145ecd2b6a784cfc09aa0d6442d4daf))
+
 ## [1.1.0](https://github.com/ceyhununlu/clipboard-x/compare/v1.0.0...v1.1.0) (2026-07-30)
 
 
