@@ -1,18 +1,23 @@
 #!/bin/bash
 #
-# One-time GitHub repository setup for ClipboardX.
-# Requires: gh auth login (authenticated as ceyhununlu)
+# One-time / re-runnable GitHub repository policy setup for ClipboardX.
+# Requires: gh auth login as the repo owner (ceyhununlu).
 #
 # Usage:
 #   Scripts/setup-github-repo.sh [owner/repo]
-# Default repo: ceyhununlu/clipboard-x
 #
-# Run AFTER the first CI workflow has finished on a PR so status check names
-# ("Test", "Build universal app") exist. Safe to re-run.
+# Policies applied:
+#   - Public repo hygiene (squash merge, delete branch on merge)
+#   - Dependabot security updates + secret scanning
+#   - main protected: no direct pushes, PR required, CI required
+#   - Only the owner (CODEOWNERS) can approve; others can open PRs but not merge
+#
+# Run AFTER CI has completed at least once so status check names exist.
 
 set -euo pipefail
 
 REPO="${1:-ceyhununlu/clipboard-x}"
+OWNER="${REPO%%/*}"
 
 if ! gh auth status >/dev/null 2>&1; then
   echo "error: run 'gh auth login' first" >&2
@@ -20,13 +25,10 @@ if ! gh auth status >/dev/null 2>&1; then
 fi
 
 LOGIN="$(gh api user --jq .login)"
-if [[ "$REPO" != "$LOGIN/"* ]]; then
-  echo "warning: logged in as ${LOGIN} but configuring ${REPO}" >&2
+if [[ "$LOGIN" != "$OWNER" ]]; then
+  echo "error: logged in as ${LOGIN}, but policies must be applied by owner ${OWNER}" >&2
+  exit 1
 fi
-
-echo "==> Creating public repository ${REPO} (skip if it already exists)"
-gh repo create "$REPO" --public --description "Native macOS clipboard history manager (Win+V style)" \
-  2>/dev/null || echo "    (repo may already exist — continuing)"
 
 echo "==> Repository settings"
 gh repo edit "$REPO" \
@@ -37,11 +39,10 @@ gh repo edit "$REPO" \
   --delete-branch-on-merge \
   --enable-squash-merge \
   --enable-merge-commit=false \
-  --enable-rebase-merge
+  --enable-rebase-merge=false
 
 echo "==> Dependabot security updates + secret scanning"
-gh api -X PATCH "repos/${REPO}" \
-  --input - <<'JSON' || echo "    (some security features may require org policy — skipped)"
+gh api -X PATCH "repos/${REPO}" --input - <<'JSON' || echo "    (some security features may require org policy — skipped)"
 {
   "security_and_analysis": {
     "dependabot_security_updates": { "status": "enabled" },
@@ -51,8 +52,11 @@ gh api -X PATCH "repos/${REPO}" \
 }
 JSON
 
-echo "==> Protecting main (PR required + CI checks)"
-if gh api -X PUT "repos/${REPO}/branches/main/protection" --input - <<'JSON'
+echo "==> Protecting main — PRs only; Code Owner (@${OWNER}) must approve; no force-push"
+# required_approving_review_count=1 + require_code_owner_reviews means a
+# non-owner collaborator cannot merge their own PR. The owner keeps admin
+# bypass (enforce_admins=false) so solo maintenance still works.
+if gh api -X PUT "repos/${REPO}/branches/main/protection" --input - <<JSON
 {
   "required_status_checks": {
     "strict": true,
@@ -61,8 +65,8 @@ if gh api -X PUT "repos/${REPO}/branches/main/protection" --input - <<'JSON'
   "enforce_admins": false,
   "required_pull_request_reviews": {
     "dismiss_stale_reviews": true,
-    "require_code_owner_reviews": false,
-    "required_approving_review_count": 0
+    "require_code_owner_reviews": true,
+    "required_approving_review_count": 1
   },
   "restrictions": null,
   "allow_force_pushes": false,
@@ -72,10 +76,12 @@ if gh api -X PUT "repos/${REPO}/branches/main/protection" --input - <<'JSON'
 JSON
 then
   gh api "repos/${REPO}/branches/main/protection" \
-    --jq '{checks: .required_status_checks.contexts, pr_reviews: .required_pull_request_reviews.required_approving_review_count}'
+    --jq '{checks: .required_status_checks.contexts, code_owner_reviews: .required_pull_request_reviews.require_code_owner_reviews, approvals: .required_pull_request_reviews.required_approving_review_count, force_push: .allow_force_pushes}'
 else
-  echo "    Branch protection failed — main may not exist yet or CI checks have not run."
-  echo "    Push main + open a PR first, wait for green CI, then re-run this script."
+  echo "    Branch protection failed — wait for CI check names, then re-run."
+  exit 1
 fi
 
 echo "==> Done."
+echo "    Contributors: fork → PR. Only @${OWNER} (CODEOWNERS) can approve/merge."
+echo "    Nobody pushes directly to main (protection requires a PR)."
