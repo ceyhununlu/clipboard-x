@@ -10,24 +10,30 @@ final class HistoryPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-/// Shows, places, and drives the history popup.
+/// Shows, places, and drives the history / emoji popup.
 @MainActor
 final class HistoryPanelController {
     /// `plainTextOnly` is true when the user held Option.
-    var onChoose: ((ClipboardItem, Bool) -> Void)?
+    var onChooseClipboard: ((ClipboardItem, Bool) -> Void)?
+    var onChooseEmoji: ((String) -> Void)?
     var onDismiss: (() -> Void)?
 
-    private let model: HistoryPanelModel
+    private let session: PanelSessionModel
     private var panel: HistoryPanel?
-    private var hostingView: ClearHostingView<HistoryListView>?
+    private var hostingView: ClearHostingView<PanelRootView>?
     private var keyMonitor: Any?
     private var outsideClickMonitor: Any?
     private var observers: [NSObjectProtocol] = []
     private var anchor: PanelAnchor = .centered
     private var isDismissing = false
 
-    init(model: HistoryPanelModel) {
-        self.model = model
+    init(session: PanelSessionModel) {
+        self.session = session
+    }
+
+    /// Convenience for call sites that still construct from a history model.
+    convenience init(model: HistoryPanelModel) {
+        self.init(session: PanelSessionModel(history: model))
     }
 
     var isVisible: Bool {
@@ -46,24 +52,22 @@ final class HistoryPanelController {
 
     func show(anchor: PanelAnchor) {
         self.anchor = anchor
-        model.reset()
+        session.reset()
 
         let panel = panel ?? makePanel()
         self.panel = panel
         layout(panel)
 
+        // Activate so the local key monitor receives typing / Return. Stay
+        // `.accessory` — flipping to `.regular` breaks paste reactivation on
+        // macOS 14+.
+        NSApp.activate()
         panel.makeKeyAndOrderFront(nil)
-        if !panel.isKeyWindow {
-            // Some configurations refuse key status to an inactive app; falling
-            // back to activating ourselves keeps the keyboard working.
-            NSApp.activate()
-            panel.makeKeyAndOrderFront(nil)
-        }
         panel.orderFrontRegardless()
 
         installKeyMonitor()
         installDismissObservers(for: panel)
-        AppLog.panel.debug("Panel shown with \(self.model.visibleItems.count) rows")
+        AppLog.panel.debug("Panel shown in \(self.session.mode.rawValue) mode")
     }
 
     func dismiss(reactivate: Bool = true) {
@@ -76,9 +80,8 @@ final class HistoryPanelController {
         if reactivate { onDismiss?() }
     }
 
-    /// Positions the fixed-size panel near the caret / pointer.
     private func layout(_ panel: HistoryPanel) {
-        let size = CGSize(width: HistoryListView.width, height: HistoryListView.panelHeight)
+        let size = CGSize(width: PanelRootView.width, height: PanelRootView.panelHeight)
         let screen = screenForAnchor() ?? NSScreen.main
         let visibleFrame = screen?.visibleFrame ?? CGRect(x: 0, y: 0, width: 1_440, height: 900)
         let origin = PanelPlacer.origin(panelSize: size, anchor: anchor, visibleFrame: visibleFrame)
@@ -98,7 +101,7 @@ final class HistoryPanelController {
 
     private func makePanel() -> HistoryPanel {
         let panel = HistoryPanel(
-            contentRect: CGRect(x: 0, y: 0, width: HistoryListView.width, height: 300),
+            contentRect: CGRect(x: 0, y: 0, width: PanelRootView.width, height: 300),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -110,8 +113,6 @@ final class HistoryPanelController {
         panel.isMovableByWindowBackground = false
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        // System shadows are rectangular and show up as a square hairline past
-        // the rounded plate. Skip them; the vibrancy plate reads clearly alone.
         panel.hasShadow = false
         panel.animationBehavior = .utilityWindow
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
@@ -132,18 +133,26 @@ final class HistoryPanelController {
         return panel
     }
 
-    private func makeRootView() -> HistoryListView {
-        HistoryListView(model: model) { [weak self] item, plainTextOnly in
-            self?.choose(item, plainTextOnly: plainTextOnly)
-        }
+    private func makeRootView() -> PanelRootView {
+        PanelRootView(
+            session: session,
+            onChooseClipboard: { [weak self] item, plain in
+                self?.chooseClipboard(item, plainTextOnly: plain)
+            },
+            onChooseEmoji: { [weak self] emoji in
+                self?.chooseEmoji(emoji)
+            }
+        )
     }
 
-    private func choose(_ item: ClipboardItem, plainTextOnly: Bool) {
-        // Hide first so we are no longer the key window, then hand off. The
-        // paster owns reactivation; calling it before the panel is gone races
-        // the synthetic ⌘V against our own teardown.
+    private func chooseClipboard(_ item: ClipboardItem, plainTextOnly: Bool) {
         dismiss(reactivate: false)
-        onChoose?(item, plainTextOnly)
+        onChooseClipboard?(item, plainTextOnly)
+    }
+
+    private func chooseEmoji(_ emoji: String) {
+        dismiss(reactivate: false)
+        onChooseEmoji?(emoji)
     }
 
     // MARK: - Keyboard
@@ -161,14 +170,29 @@ final class HistoryPanelController {
         keyMonitor = nil
     }
 
-    /// Returns whether the event was consumed.
-    ///
-    /// Navigation and app shortcuts are handled here. Typing, ←/→ caret moves,
-    /// Backspace, and standard text editing are left for the focused search field.
     private func handle(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let command = flags.contains(.command)
 
+        let control = flags.contains(.control)
+
+        // ⌃1 / ⌃2 switch tabs without stealing ⌘1–⌘9 history shortcuts.
+        if control, !command, let digit = Int(event.charactersIgnoringModifiers ?? ""),
+           (1...PanelMode.allCases.count).contains(digit) {
+            session.mode = PanelMode.allCases[digit - 1]
+            return true
+        }
+
+        switch session.mode {
+        case .clipboard:
+            return handleClipboard(event, flags: flags, command: command)
+        case .emoji:
+            return handleEmoji(event, flags: flags, command: command)
+        }
+    }
+
+    private func handleClipboard(_ event: NSEvent, flags: NSEvent.ModifierFlags, command: Bool) -> Bool {
+        let model = session.history
         switch event.keyCode {
         case VirtualKey.escape:
             if model.isFiltering {
@@ -177,51 +201,40 @@ final class HistoryPanelController {
                 dismiss()
             }
             return true
-
         case VirtualKey.arrowUp:
             model.moveSelection(by: -1)
             return true
-
         case VirtualKey.arrowDown:
             model.moveSelection(by: 1)
             return true
-
         case VirtualKey.returnKey, KeyCodes.keypadEnter:
             if let item = model.selectedItem {
-                choose(item, plainTextOnly: flags.contains(.option))
+                chooseClipboard(item, plainTextOnly: flags.contains(.option))
             }
             return true
-
         case VirtualKey.delete where command:
             model.deleteSelection()
             return true
-
         case KeyCodes.pageUp:
             model.moveSelection(by: -HistoryPanelModel.maxVisibleRows)
             return true
-
         case KeyCodes.pageDown:
             model.moveSelection(by: HistoryPanelModel.maxVisibleRows)
             return true
-
         case KeyCodes.p where command:
             model.togglePinOnSelection()
             return true
-
         default:
             break
         }
 
         if command, let digit = Int(event.charactersIgnoringModifiers ?? ""), digit >= 1, digit <= 9 {
             if let item = model.item(forNumericShortcut: digit) {
-                choose(item, plainTextOnly: flags.contains(.option))
+                chooseClipboard(item, plainTextOnly: flags.contains(.option))
             }
             return true
         }
 
-        // Prefer the focused search field. If focus has not landed yet (common
-        // on the first keystrokes after open), fall back to the model so those
-        // characters are not dropped.
         if HistoryPanelTypingFallback.apply(
             keyCode: event.keyCode,
             characters: event.characters,
@@ -234,12 +247,57 @@ final class HistoryPanelController {
         ) {
             return true
         }
-
-        // ←/→, Home/End, ⌘A/⌘V, and focused typing reach the TextField.
         return false
     }
 
-    /// SwiftUI's `TextField` uses an `NSTextField` / field-editor `NSTextView`.
+    private func handleEmoji(_ event: NSEvent, flags: NSEvent.ModifierFlags, command: Bool) -> Bool {
+        let model = session.emoji
+        switch event.keyCode {
+        case VirtualKey.escape:
+            if model.isFiltering {
+                model.clearQuery()
+            } else {
+                dismiss()
+            }
+            return true
+        case VirtualKey.arrowUp:
+            model.moveSelection(rows: -1, columns: 0)
+            return true
+        case VirtualKey.arrowDown:
+            model.moveSelection(rows: 1, columns: 0)
+            return true
+        case VirtualKey.arrowLeft:
+            if isSearchFieldFirstResponder { return false }
+            model.moveSelection(rows: 0, columns: -1)
+            return true
+        case VirtualKey.arrowRight:
+            if isSearchFieldFirstResponder { return false }
+            model.moveSelection(rows: 0, columns: 1)
+            return true
+        case VirtualKey.returnKey, KeyCodes.keypadEnter:
+            if let emoji = model.selectedEmoji {
+                chooseEmoji(emoji)
+            }
+            return true
+        default:
+            break
+        }
+
+        if HistoryPanelTypingFallback.apply(
+            keyCode: event.keyCode,
+            characters: event.characters,
+            command: command,
+            control: flags.contains(.control),
+            option: flags.contains(.option),
+            searchFieldFocused: isSearchFieldFirstResponder,
+            append: { model.appendToQuery($0) },
+            deleteBackward: { model.deleteBackwardInQuery() }
+        ) {
+            return true
+        }
+        return false
+    }
+
     private var isSearchFieldFirstResponder: Bool {
         guard let responder = panel?.firstResponder else { return false }
         if responder is NSTextField { return true }
@@ -250,8 +308,6 @@ final class HistoryPanelController {
     private enum KeyCodes {
         static let p: UInt16 = 35
         static let keypadEnter: UInt16 = 76
-        static let home: UInt16 = 115
-        static let end: UInt16 = 119
         static let pageUp: UInt16 = 116
         static let pageDown: UInt16 = 121
     }
@@ -260,8 +316,6 @@ final class HistoryPanelController {
 
     private func installDismissObservers(for panel: NSPanel) {
         guard observers.isEmpty else { return }
-        // A non-activating panel can stay key while another app is frontmost, so
-        // resigning key is not a reliable signal on its own.
         outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
         ) { [weak self] _ in

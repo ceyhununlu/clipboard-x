@@ -74,6 +74,11 @@ final class HistoryPanelModel: ObservableObject {
         refresh(resettingSelection: true)
     }
 
+    /// Reclaims search-field focus without clearing the query.
+    func resetFocusOnly() {
+        searchFocusNonce &+= 1
+    }
+
     // MARK: - Navigation
 
     func moveSelection(by delta: Int) {
