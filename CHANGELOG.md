@@ -7,6 +7,13 @@ from [Conventional Commits](https://www.conventionalcommits.org/) on `main`. Whe
 due, Release Please opens a **Release PR**; merging it creates the `v*` tag and CI publishes
 the macOS DMG and zip.
 
+## [1.1.0](https://github.com/ceyhununlu/clipboard-x/compare/v1.0.3...v1.1.0) (2026-07-31)
+
+
+### Features
+
+* add emoji picker tab to the history panel ([#24](https://github.com/ceyhununlu/clipboard-x/issues/24)) ([8cdcd4e](https://github.com/ceyhununlu/clipboard-x/commit/8cdcd4ea8ced2f5d23f90305643bc9e68a83c126))
+
 ## [1.0.3](https://github.com/ceyhununlu/clipboard-x/compare/v1.0.2...v1.0.3) (2026-07-31)
 
 
