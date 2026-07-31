@@ -7,6 +7,13 @@ from [Conventional Commits](https://www.conventionalcommits.org/) on `main`. Whe
 due, Release Please opens a **Release PR**; merging it creates the `v*` tag and CI publishes
 the macOS DMG and zip.
 
+## [1.0.2](https://github.com/ceyhununlu/clipboard-x/compare/v1.0.1...v1.0.2) (2026-07-31)
+
+
+### Bug Fixes
+
+* emit valid Sparkle edSignature in appcast enclosures ([#20](https://github.com/ceyhununlu/clipboard-x/issues/20)) ([8371b6b](https://github.com/ceyhununlu/clipboard-x/commit/8371b6b0ea6da2154bb082f18ef84978ef8977a3))
+
 ## [1.0.1](https://github.com/ceyhununlu/clipboard-x/compare/v1.0.0...v1.0.1) (2026-07-31)
 
 
