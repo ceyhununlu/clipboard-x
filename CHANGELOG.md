@@ -7,6 +7,13 @@ from [Conventional Commits](https://www.conventionalcommits.org/) on `main`. Whe
 due, Release Please opens a **Release PR**; merging it creates the `v*` tag and CI publishes
 the macOS DMG and zip.
 
+## [1.0.3](https://github.com/ceyhununlu/clipboard-x/compare/v1.0.2...v1.0.3) (2026-07-31)
+
+
+### Bug Fixes
+
+* keep history selection padding with ellipsized titles ([#22](https://github.com/ceyhununlu/clipboard-x/issues/22)) ([cac8cc9](https://github.com/ceyhununlu/clipboard-x/commit/cac8cc9c7f9d56c25ad20a81fbe586dde7317e03))
+
 ## [1.0.2](https://github.com/ceyhununlu/clipboard-x/compare/v1.0.1...v1.0.2) (2026-07-31)
 
 
