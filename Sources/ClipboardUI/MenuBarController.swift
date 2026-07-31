@@ -12,6 +12,9 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     var onOpenHistory: () -> Void = {}
     var onOpenSettings: () -> Void = {}
     var onChoose: (ClipboardItem) -> Void = { _ in }
+    /// Fired when the status menu is about to rebuild — capture the frontmost
+    /// app before the menu steals focus.
+    var onMenuWillOpen: () -> Void = {}
     var onClearHistory: () -> Void = {}
     var onFixPermission: () -> Void = {}
     var onCheckForUpdates: () -> Void = {}
@@ -64,6 +67,7 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     // MARK: - NSMenuDelegate
 
     func menuNeedsUpdate(_ menu: NSMenu) {
+        onMenuWillOpen()
         menu.removeAllItems()
 
         let open = NSMenuItem(

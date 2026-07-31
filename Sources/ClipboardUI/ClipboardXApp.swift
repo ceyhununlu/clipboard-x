@@ -38,6 +38,7 @@ public final class ClipboardXApp: NSObject, NSApplicationDelegate {
     private var monitor: ClipboardMonitor!
     private var paster: Paster!
     private var panelModel: HistoryPanelModel!
+    private var panelSession: PanelSessionModel!
     private var panel: HistoryPanelController!
     private var menuBar: MenuBarController!
     private var settingsWindow: SettingsWindowController!
@@ -131,18 +132,26 @@ public final class ClipboardXApp: NSObject, NSApplicationDelegate {
 
     private func buildInterface() {
         panelModel = HistoryPanelModel(store: store)
-        panel = HistoryPanelController(model: panelModel)
-        panel.onChoose = { [weak self] item, plainTextOnly in
+        panelSession = PanelSessionModel(history: panelModel)
+        panel = HistoryPanelController(session: panelSession)
+        panel.onChooseClipboard = { [weak self] item, plainTextOnly in
             self?.deliver(item, plainTextOnly: plainTextOnly)
+        }
+        panel.onChooseEmoji = { [weak self] emoji in
+            self?.deliverEmoji(emoji)
         }
         panel.onDismiss = { [weak self] in
             self?.tracker.reactivate()
+            self?.tracker.clear()
         }
 
         menuBar = MenuBarController(store: store, settings: settings, permission: permission)
         menuBar.onOpenHistory = { [weak self] in self?.openHistory() }
         menuBar.onOpenSettings = { [weak self] in self?.openSettings() }
-        menuBar.onChoose = { [weak self] item in self?.deliver(item, plainTextOnly: false) }
+        menuBar.onMenuWillOpen = { [weak self] in self?.tracker.capture() }
+        menuBar.onChoose = { [weak self] item in
+            self?.deliver(item, plainTextOnly: false)
+        }
         menuBar.onClearHistory = { [weak self] in self?.confirmClearHistory() }
         menuBar.onFixPermission = { [weak self] in self?.permission.presentExplanation() }
         menuBar.onQuit = { NSApp.terminate(nil) }
@@ -300,8 +309,16 @@ public final class ClipboardXApp: NSObject, NSApplicationDelegate {
             content,
             plainTextOnly: plainTextOnly,
             autoPaste: settings.autoPaste
-        ) { pasted in
+        ) { [weak self] pasted in
             AppLog.clipboard.debug("Delivered item, synthesized paste: \(pasted)")
+            self?.tracker.clear()
+        }
+    }
+
+    private func deliverEmoji(_ emoji: String) {
+        paster.deliverText(emoji, autoPaste: settings.autoPaste) { [weak self] pasted in
+            AppLog.clipboard.debug("Delivered emoji, synthesized paste: \(pasted)")
+            self?.tracker.clear()
         }
     }
 

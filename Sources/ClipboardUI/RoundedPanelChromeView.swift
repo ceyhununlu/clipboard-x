@@ -17,6 +17,8 @@ final class ClearHostingView<Content: View>: NSHostingView<Content> {
 
     override var isOpaque: Bool { false }
 
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         window?.isOpaque = false
@@ -25,8 +27,10 @@ final class ClearHostingView<Content: View>: NSHostingView<Content> {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let view = super.hitTest(point)
-        return view === self ? nil : view
+        // Never let clicks fall through the popup into the app behind it
+        // (that dismisses the panel via resign-key).
+        guard bounds.contains(point) else { return nil }
+        return super.hitTest(point) ?? self
     }
 }
 
@@ -67,6 +71,13 @@ final class RoundedPanelChromeView: NSView {
     }
 
     override var isOpaque: Bool { false }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard bounds.contains(point) else { return nil }
+        return super.hitTest(point) ?? self
+    }
 
     override func layout() {
         super.layout()
