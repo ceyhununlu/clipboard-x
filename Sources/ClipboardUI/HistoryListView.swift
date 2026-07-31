@@ -209,7 +209,6 @@ struct HistoryRowView: View {
                     .foregroundStyle(isSelected ? Color.white.opacity(0.75) : Color.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Spacer(minLength: 4)
             if item.isPinned {
                 Image(systemName: "pin.fill")
                     .font(.system(size: 9))
@@ -222,17 +221,18 @@ struct HistoryRowView: View {
                     .foregroundStyle(isSelected ? Color.white.opacity(0.8) : Color.secondary.opacity(0.7))
             }
         }
-        .padding(.horizontal, 14)
-        // Fill the fixed row height so the selection chrome can inset from the
-        // row edges (like the left/right gap) without shrinking to the text.
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        // Padding lives on the content so the selection chrome keeps a stable
+        // top/bottom inset even when the title is a single ellipsized line.
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
         .background {
             if isSelected {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(Color.accentColor)
-                    .padding(10)
             }
         }
+        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
     @ViewBuilder
