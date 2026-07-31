@@ -197,14 +197,18 @@ struct HistoryRowView: View {
                 .frame(width: 34, height: 34)
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.previewText)
-                    .lineLimit(2)
+                    .lineLimit(1)
                     .truncationMode(.tail)
                     .font(.system(size: 12))
                     .foregroundStyle(isSelected ? .white : .primary)
+                    .help(item.previewText)
                 Text(subtitle)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                     .font(.system(size: 10))
                     .foregroundStyle(isSelected ? Color.white.opacity(0.75) : Color.secondary)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             Spacer(minLength: 4)
             if item.isPinned {
                 Image(systemName: "pin.fill")
