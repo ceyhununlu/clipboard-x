@@ -41,17 +41,33 @@ KEY_FILE="${RUNNER_TEMP:-/tmp}/sparkle_ed_private"
 # Private key file is a single line of base64 from generate_keys -x
 printf '%s\n' "$SPARKLE_PRIVATE_KEY" >"$KEY_FILE"
 
-SIGNATURE="$("$SIGN_UPDATE" "$DMG_PATH" -f "$KEY_FILE" | tr -d '\r\n')"
+# -p prints only the EdDSA signature. Without it, sign_update emits a full
+# `sparkle:edSignature="…" length="…"` attribute string, which must not be
+# wrapped again inside sparkle:edSignature="…".
+SIGNATURE="$("$SIGN_UPDATE" "$DMG_PATH" --ed-key-file "$KEY_FILE" -p | tr -d '\r\n')"
 rm -f "$KEY_FILE"
+
+if [[ -z "$SIGNATURE" || "$SIGNATURE" == *sparkle:edSignature* || "$SIGNATURE" == *' '* ]]; then
+  echo "error: unexpected sign_update -p output: ${SIGNATURE:0:80}" >&2
+  exit 1
+fi
 
 LENGTH="$(wc -c <"$DMG_PATH" | tr -d ' ')"
 DMG_NAME="$(basename "$DMG_PATH")"
 DOWNLOAD_URL="https://github.com/${REPO}/releases/download/v${VERSION}/${DMG_NAME}"
 PUB_DATE="$(date -u '+%a, %d %b %Y %H:%M:%S +0000')"
 
+# Repair a previously published enclosure that double-wrapped sign_update output:
+#   sparkle:edSignature="sparkle:edSignature="SIG" length="N""
+sanitize_appcast() {
+  sed -E 's/sparkle:edSignature="sparkle:edSignature="([^"]+)" length="[0-9]+""/sparkle:edSignature="\1"/g'
+}
+
 PREV_FILE="${RUNNER_TEMP:-/tmp}/prev-appcast.xml"
 PREV_ITEMS=""
 if curl -fsSL "https://github.com/${REPO}/releases/latest/download/appcast.xml" -o "$PREV_FILE" 2>/dev/null; then
+  sanitize_appcast <"$PREV_FILE" >"${PREV_FILE}.sanitized"
+  mv "${PREV_FILE}.sanitized" "$PREV_FILE"
   # Keep prior <item> blocks, drop any that already describe this short version.
   PREV_ITEMS="$(awk -v ver="$VERSION" '
     /<item>/ { buf=$0; capture=1; next }
