@@ -124,12 +124,29 @@ EOF
 if command -v SetFile >/dev/null 2>&1; then
   SetFile -a V "$MOUNT_DIR/.background" || true
 fi
-# Ensure .DS_Store is flushed before unmount.
+
+# Finder may keep the volume busy on CI after the layout script — close windows,
+# sync, then retry detach (force as a last resort).
+osascript -e "tell application \"Finder\" to close (every window whose name is \"$APP_NAME\")" \
+  >/dev/null 2>&1 || true
 sync
-sleep 1
+sleep 2
 
 echo "==> Detaching and compressing"
-hdiutil detach "$DEVICE"
+detached=0
+for attempt in 1 2 3 4 5; do
+  if hdiutil detach "$DEVICE" >/dev/null 2>&1; then
+    detached=1
+    break
+  fi
+  echo "    detach attempt ${attempt} busy — retrying"
+  osascript -e "tell application \"Finder\" to close (every window whose name is \"$APP_NAME\")" \
+    >/dev/null 2>&1 || true
+  sleep 2
+done
+if [[ "$detached" -ne 1 ]]; then
+  hdiutil detach "$DEVICE" -force
+fi
 DEVICE=""
 trap - EXIT
 rm -rf "$STAGE"
