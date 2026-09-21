@@ -7,6 +7,13 @@ from [Conventional Commits](https://www.conventionalcommits.org/) on `main`. Whe
 due, Release Please opens a **Release PR**; merging it creates the `v*` tag and CI publishes
 the macOS DMG and zip.
 
+## [1.1.1](https://github.com/ceyhununlu/clipboard-x/compare/v1.1.0...v1.1.1) (2026-09-21)
+
+
+### Bug Fixes
+
+* reliable single-shot auto-paste; bump Sparkle to 2.10.0 ([#29](https://github.com/ceyhununlu/clipboard-x/issues/29)) ([9a46d1d](https://github.com/ceyhununlu/clipboard-x/commit/9a46d1d2cb536250a7379d0f62789e039323eef3))
+
 ## [1.1.0](https://github.com/ceyhununlu/clipboard-x/compare/v1.0.3...v1.1.0) (2026-07-31)
 
 
