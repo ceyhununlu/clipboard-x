@@ -292,17 +292,26 @@ public final class ClipboardXApp: NSObject, NSApplicationDelegate {
     }
 
     private func openHistory() {
+        // While the panel is up we are the frontmost app, so capturing here
+        // would erase the real target; closing hands focus back through
+        // `onDismiss` instead.
+        if panel.isVisible {
+            panel.dismiss()
+            return
+        }
         tracker.capture()
         let location = caretLocator.locate(
             processIdentifier: tracker.capturedApp?.processIdentifier
         )
         AppLog.panel.debug("Opening at \(String(describing: location))")
-        panel.toggle(anchor: location.anchor)
+        panel.show(anchor: location.anchor)
     }
 
     private func deliver(_ item: ClipboardItem, plainTextOnly: Bool) {
         guard let content = panelModel.content(for: item) else {
             NSSound.beep()
+            tracker.reactivate()
+            tracker.clear()
             return
         }
         paster.deliver(
@@ -323,9 +332,16 @@ public final class ClipboardXApp: NSObject, NSApplicationDelegate {
     }
 
     private func pasteMostRecentAsPlainText() {
-        tracker.capture()
+        if panel.isVisible {
+            // Keep the target captured when the panel opened; we are frontmost now.
+            panel.dismiss(reactivate: false)
+        } else {
+            tracker.capture()
+        }
         guard let item = store.items.first else {
             NSSound.beep()
+            tracker.reactivate()
+            tracker.clear()
             return
         }
         deliver(item, plainTextOnly: true)

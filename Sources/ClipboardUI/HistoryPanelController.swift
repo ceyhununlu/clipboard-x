@@ -42,14 +42,6 @@ final class HistoryPanelController {
 
     // MARK: - Presentation
 
-    func toggle(anchor: PanelAnchor) {
-        if isVisible {
-            dismiss()
-        } else {
-            show(anchor: anchor)
-        }
-    }
-
     func show(anchor: PanelAnchor) {
         self.anchor = anchor
         session.reset()
