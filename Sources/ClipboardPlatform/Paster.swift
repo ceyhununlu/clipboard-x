@@ -35,12 +35,14 @@ public final class Paster {
         pasteboard: SystemPasteboard,
         permission: AccessibilityPermission,
         tracker: FrontmostAppTracker,
-        waiter: ActivationWaiter = ActivationWaiter()
+        waiter: ActivationWaiter? = nil
     ) {
         self.pasteboard = pasteboard
         self.permission = permission
         self.tracker = tracker
-        self.waiter = waiter
+        // Resolved here rather than as a default argument: default-argument
+        // expressions are nonisolated and cannot call the main-actor initializer.
+        self.waiter = waiter ?? ActivationWaiter()
     }
 
     /// Puts `content` on the pasteboard and optionally pastes it for the user.
