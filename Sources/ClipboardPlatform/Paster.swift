@@ -8,14 +8,24 @@ import Foundation
 ///
 /// The pasteboard write always happens; synthesizing paste needs Accessibility.
 /// Without a grant the item is still on the clipboard for a manual ⌘V.
+///
+/// Delivery is deliberately single-shot: one pasteboard write, then at most
+/// one ⌘V into the captured app once it is confirmed frontmost. Inserting text
+/// through the Accessibility API is avoided on purpose: setting
+/// `kAXSelectedText` has no observable outcome (`.success` only means the
+/// target accepted the message, and a timed-out request may still be carried
+/// out later), so any fallback layered on top of it can end up writing the
+/// item twice — or, when the setter silently no-ops, not at all.
 @MainActor
 public final class Paster {
-    /// Time for the previous app to become key after we yield activation.
-    private static let pasteDelay: TimeInterval = 0.18
+    /// Some apps (Emacs, Microsoft Remote Desktop) only honour ⌘ on a
+    /// synthesized keystroke when a device-specific Command bit is set too.
+    private static let leftCommandDeviceFlag = CGEventFlags(rawValue: 0x0000_0008)
 
     private let pasteboard: SystemPasteboard
     private let permission: AccessibilityPermission
     private let tracker: FrontmostAppTracker
+    private let waiter: ActivationWaiter
 
     /// Called immediately after the app writes to the pasteboard, so the monitor
     /// can discount its own write instead of re-recording the item.
@@ -24,11 +34,13 @@ public final class Paster {
     public init(
         pasteboard: SystemPasteboard,
         permission: AccessibilityPermission,
-        tracker: FrontmostAppTracker
+        tracker: FrontmostAppTracker,
+        waiter: ActivationWaiter = ActivationWaiter()
     ) {
         self.pasteboard = pasteboard
         self.permission = permission
         self.tracker = tracker
+        self.waiter = waiter
     }
 
     /// Puts `content` on the pasteboard and optionally pastes it for the user.
@@ -41,15 +53,7 @@ public final class Paster {
         if !(plainTextOnly && pasteboard.writePlainText(content)) {
             pasteboard.write(content)
         }
-        let axText: String?
-        if plainTextOnly {
-            axText = content.plainText
-        } else if case .text(let string) = content {
-            axText = string
-        } else {
-            axText = nil
-        }
-        finishDelivery(plainText: axText, autoPaste: autoPaste, completion: completion)
+        finishDelivery(autoPaste: autoPaste, completion: completion)
     }
 
     /// Pastes a plain string (emoji / text snippets from the picker).
@@ -59,11 +63,10 @@ public final class Paster {
         completion: (@MainActor (Bool) -> Void)?
     ) {
         pasteboard.write(.text(string))
-        finishDelivery(plainText: string, autoPaste: autoPaste, completion: completion)
+        finishDelivery(autoPaste: autoPaste, completion: completion)
     }
 
     private func finishDelivery(
-        plainText: String?,
         autoPaste: Bool,
         completion: (@MainActor (Bool) -> Void)?
     ) {
@@ -71,28 +74,10 @@ public final class Paster {
 
         permission.refresh()
         let canPaste = autoPaste && AXIsProcessTrusted()
-        let targetPID = tracker.capturedApp?.processIdentifier
+        let target = tracker.capturedApp
 
-        // AX fast path only when the captured element still belongs to the
-        // captured app — avoids inserting into a stale background field.
-        if canPaste,
-           let plainText,
-           let targetPID,
-           let element = tracker.capturedFocusedElement,
-           tracker.elementBelongs(to: targetPID, element: element) {
-            _ = AXUIElementSetAttributeValue(
-                element,
-                kAXFocusedAttribute as CFString,
-                kCFBooleanTrue as CFTypeRef
-            )
-            if insertText(plainText, into: element) {
-                tracker.reactivate()
-                completion?(true)
-                return
-            }
-        }
-
-        // Fall back: return focus, then ⌘V (images / Electron / failed AX).
+        // Hand activation back first in every case, so the user is returned to
+        // their app even when we end up not pasting.
         tracker.reactivate()
 
         guard canPaste else {
@@ -103,50 +88,30 @@ public final class Paster {
             return
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + Self.pasteDelay) { [weak self] in
-            MainActor.assumeIsolated {
+        guard let target, !target.isTerminated else {
+            // Nothing was captured, so there is no app to wait for. If we are not
+            // the active app the frontmost one is the user's; otherwise a
+            // session-wide ⌘V would only reach ourselves.
+            completion?(NSApp.isActive ? false : synthesizeCommandV(into: nil))
+            return
+        }
+
+        let pid = target.processIdentifier
+        waiter.wait(
+            isActive: { NSWorkspace.shared.frontmostApplication?.processIdentifier == pid },
+            retryActivation: { [tracker] in _ = tracker.reactivate() },
+            completion: { [weak self] activated in
+                // Post even when the switch was not observed in time: the event
+                // is addressed to the target's process, so it cannot reach any
+                // other app, and a target that came forward late still gets it.
                 guard let self else {
                     completion?(false)
                     return
                 }
-                self.tracker.reactivate()
-
-                if let plainText,
-                   let targetPID,
-                   self.insertTextViaAccessibility(plainText, expectedPID: targetPID) {
-                    completion?(true)
-                    return
-                }
-                completion?(self.synthesizeCommandV(into: targetPID))
+                let posted = self.synthesizeCommandV(into: pid)
+                completion?(activated && posted)
             }
-        }
-    }
-
-    /// Inserts only into a focused element that still belongs to `expectedPID`.
-    private func insertTextViaAccessibility(_ string: String, expectedPID: pid_t) -> Bool {
-        let appElement = AXUIElementCreateApplication(expectedPID)
-        var focused: CFTypeRef?
-        if AXUIElementCopyAttributeValue(
-            appElement,
-            kAXFocusedUIElementAttribute as CFString,
-            &focused
-        ) == .success,
-            let focused {
-            let element = unsafeBitCast(focused, to: AXUIElement.self)
-            if tracker.elementBelongs(to: expectedPID, element: element),
-               insertText(string, into: element) {
-                return true
-            }
-        }
-        return false
-    }
-
-    private func insertText(_ string: String, into element: AXUIElement) -> Bool {
-        AXUIElementSetAttributeValue(
-            element,
-            kAXSelectedTextAttribute as CFString,
-            string as CFTypeRef
-        ) == .success
+        )
     }
 
     /// Posts ⌘V to the target process when known, otherwise to the session.
@@ -171,8 +136,9 @@ public final class Paster {
               let keyUp = CGEvent(keyboardEventSource: source, virtualKey: key, keyDown: false)
         else { return false }
 
-        keyDown.flags = .maskCommand
-        keyUp.flags = .maskCommand
+        let flags: CGEventFlags = [.maskCommand, Self.leftCommandDeviceFlag]
+        keyDown.flags = flags
+        keyUp.flags = flags
 
         if let targetPID, targetPID > 0 {
             keyDown.postToPid(targetPID)

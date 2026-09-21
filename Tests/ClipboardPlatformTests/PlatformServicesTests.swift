@@ -75,7 +75,6 @@ struct FrontmostAppTrackerTests {
         tracker.clear()
 
         #expect(tracker.capturedApp == nil)
-        #expect(tracker.capturedFocusedElement == nil)
     }
 }
 
